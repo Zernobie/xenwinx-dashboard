@@ -1143,7 +1143,7 @@ function workflowTableHtml(g) {
     </div>
     ${rows.length === 0 ? `<div style="font-size:13px;color:var(--t-faint)">No workflow rows yet</div>` : `
     <div style="overflow-x:auto;border:1px solid oklch(0.87 0.013 80);border-radius:10px;background:var(--t-surface-solid)">
-      <table style="width:100%;border-collapse:collapse;min-width:840px">
+      <table class="wf-table" style="width:100%;border-collapse:collapse;min-width:840px">
         <thead><tr>
           <th style="${head};width:170px">Phase</th>
           <th style="${head};width:150px">Sub Phase</th>
@@ -1157,16 +1157,16 @@ function workflowTableHtml(g) {
             const prev = rows[i - 1];
             const newPhase = !prev || prev.phase !== r.phase;
             return `<tr${newPhase && i > 0 ? ' style="border-top:2px solid var(--t-line-3)"' : ''}>
-              <td style="${cell};font-weight:${newPhase ? '600' : '400'};color:${newPhase ? 'var(--u-accent)' : 'oklch(0.72 0.02 80)'}">${esc(r.phase)}</td>
-              <td style="${cell};color:var(--t-ink-3)">${esc(r.subPhase) || '&mdash;'}</td>
-              <td style="${cell};font-weight:500">${esc(r.task)}</td>
-              <td style="${cell};color:var(--t-ink-3)">${esc(r.covers) || '&mdash;'}</td>
-              <td style="${cell}">
+              <td data-label="Phase" style="${cell};font-weight:${newPhase ? '600' : '400'};color:${newPhase ? 'var(--u-accent)' : 'oklch(0.72 0.02 80)'}">${esc(r.phase)}</td>
+              <td data-label="Sub phase" style="${cell};color:var(--t-ink-3)">${esc(r.subPhase) || '&mdash;'}</td>
+              <td data-label="Task" style="${cell};font-weight:500">${esc(r.task)}</td>
+              <td data-label="What it covers" style="${cell};color:var(--t-ink-3)">${esc(r.covers) || '&mdash;'}</td>
+              <td data-label="Your status" style="${cell}">
                 <select data-action-input="wfrow-status" data-id="${r.id}" style="font-size:12px;font-family:'Work Sans',sans-serif;border:1px solid oklch(0.82 0.014 80);border-radius:6px;padding:4px 6px;background:#fff;color:${WF_STATUS_COLOR[r.status] || 'inherit'};font-weight:600">
                   ${WF_STATUS.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${cap(s)}</option>`).join('')}
                 </select>
               </td>
-              <td style="${cell};white-space:nowrap">
+              <td class="wf-actions" style="${cell};white-space:nowrap">
                 <button class="ghost-btn small" data-action="edit-wfrow" data-id="${r.id}">Edit</button>
                 <button class="danger-btn small" data-action="delete-wfrow" data-id="${r.id}">&times;</button>
               </td>
@@ -1911,13 +1911,13 @@ function renderSchedule() {
   if (state.scheduleView === 'month') {
     label = `${monthNames[anchorDate.getMonth()]} ${anchorDate.getFullYear()}`;
     body = `
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px">
+      <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:6px">
         ${dayNames.map(d => `<div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--t-muted);font-weight:600;padding-left:4px">${d}</div>`).join('')}
       </div>
       <div class="list-col" style="gap:6px">${buildMonthGrid(anchorDate).map(week => `
-        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">
+        <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px">
           ${week.map(cell => cell ? `
-            <div data-action="new-scheduleitem" data-date="${cell.dateStr}" title="Click to add an item" style="cursor:pointer;min-height:86px;border-radius:8px;padding:6px;background:var(--t-surface-solid);border:1px solid oklch(0.87 0.013 80);display:flex;flex-direction:column;gap:3px">
+            <div class="cal-cell" data-action="new-scheduleitem" data-date="${cell.dateStr}" title="Click to add an item" style="min-width:0;overflow:hidden;cursor:pointer;min-height:86px;border-radius:8px;padding:6px;background:var(--t-surface-solid);border:1px solid oklch(0.87 0.013 80);display:flex;flex-direction:column;gap:3px">
               <div style="font-size:12px;color:var(--t-muted)">${cell.num}</div>
               ${cell.events.map(ev => eventChipHtml(ev, true)).join('')}
             </div>` : `<div style="min-height:86px"></div>`).join('')}
@@ -4010,4 +4010,29 @@ window.XenwinxDashboard = { boot, state, profiles: () => REG.profiles, themes: T
   .gate-intro, .gate-intro .gate-copy, .gate-intro .brand-logo, .gate-intro .gate-art-tile { animation: none !important; }
 }`;
   const s = document.createElement('style'); s.id = 'xenwinx-forest'; s.textContent = css; document.head.appendChild(s);
+})();
+
+/* Phone layout fixes: calendar, workflow table and task rows fit the screen instead of being cut off. */
+(function injectMobileFixes() {
+  const css = `
+@media (max-width: 820px) {
+  #main img, #main video { max-width: 100%; height: auto; }
+  .task-row, .step-row { flex-wrap: wrap; row-gap: 8px; }
+  .task-row > [style*="flex:1"], .step-row > [style*="flex:1"] { flex: 1 1 100% !important; min-width: 0; }
+  .task-row > .u-dot + [style*="flex:1"] { flex-basis: calc(100% - 30px) !important; }
+  .wf-table { min-width: 0 !important; }
+  .wf-table thead { display: none; }
+  .wf-table, .wf-table tbody, .wf-table tr, .wf-table td { display: block; width: 100% !important; }
+  .wf-table tr { padding: 10px 12px; border-bottom: 1px solid var(--t-line-2, rgba(0,0,0,.08)); }
+  .wf-table td { padding: 3px 0 !important; border: 0 !important; white-space: normal !important; }
+  .wf-table td[data-label]::before { content: attr(data-label); display: block; font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--t-muted); }
+  .wf-table td.wf-actions { display: flex; gap: 8px; padding-top: 8px !important; }
+}
+@media (max-width: 560px) {
+  .cal-cell { min-height: 58px !important; padding: 4px !important; flex-direction: row !important; flex-wrap: wrap !important; align-content: flex-start; gap: 3px !important; }
+  .cal-cell > div:first-child { width: 100%; }
+  .cal-cell > div[data-action] { padding: 3px !important; border: 0 !important; background: none !important; }
+  .cal-cell > div[data-action] > span:last-child { display: none; }
+}`;
+  const s = document.createElement('style'); s.id = 'xenwinx-mobile-fixes'; s.textContent = css; document.head.appendChild(s);
 })();
