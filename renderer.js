@@ -2964,7 +2964,8 @@ function gateThemeId() {
 function gateLandingHtml() {
   const last = REG.profiles.find(p => p.id === REG.lastId);
   const n = REG.profiles.length;
-  return `<div class="gate"><div class="gate-inner gate-landing">
+  const intro = !window.__xwIntroSeen; window.__xwIntroSeen = true;
+  return `<div class="gate gate-forest${intro ? ' gate-intro' : ''}"><div class="gate-inner gate-landing">
     <div class="gate-copy">
       <div class="gate-brand"><img src="assets/xenwinx-logo.png" alt="" class="brand-logo"><span>Xenwinx Studio Dashboard</span></div>
       <h1 class="gate-title">Imagine. Design.<br>Inspiring minds.</h1>
@@ -3948,3 +3949,32 @@ class XenwinxDashboard extends HTMLElement {
 }
 if (!window.customElements.get('xenwinx-dashboard')) customElements.define('xenwinx-dashboard', XenwinxDashboard);
 window.XenwinxDashboard = { boot, state, profiles: () => REG.profiles, themes: THEMES };
+
+/* Landing page: forest background. The forest shows first, then the logo and content fade in. */
+(function injectForestStyles() {
+  const css = `
+.gate-forest { background: #1c3324 url('assets/forest-bg-wide.jpg') center / cover no-repeat fixed; }
+@media (max-aspect-ratio: 1/1) { .gate-forest { background-image: url('assets/forest-bg-tall.jpg'); } }
+.gate-forest::before { content: ''; position: fixed; inset: 0; pointer-events: none;
+  background: linear-gradient(100deg, rgba(8,22,14,.55) 0%, rgba(8,22,14,.22) 50%, rgba(8,22,14,0) 85%); }
+.gate-forest .gate-inner { position: relative; }
+.gate-forest .gate-copy { background: rgba(255,255,255,.84); -webkit-backdrop-filter: blur(12px) saturate(1.2); backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,.6); border-radius: 22px; padding: 34px 36px; box-shadow: 0 24px 70px rgba(0,20,10,.35); }
+.gate-forest .gate-art .avatar { box-shadow: 0 10px 28px rgba(0,20,10,.35); border-radius: 50%; }
+.gate-intro { animation: xwForestIn 1.2s ease-out both; }
+.gate-intro .gate-copy { animation: xwRise .9s cubic-bezier(.2,.7,.2,1) 1.1s both; }
+.gate-intro .gate-brand .brand-logo { animation: xwLogo .8s cubic-bezier(.2,.8,.2,1.2) 1.3s both; }
+.gate-intro .gate-art-tile { animation: xwPop .6s ease-out both; animation-delay: calc(1.5s + var(--d) * 60ms); }
+@keyframes xwForestIn { from { filter: brightness(.25) blur(3px); } to { filter: none; } }
+@keyframes xwRise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes xwLogo { from { opacity: 0; transform: scale(.4) rotate(-20deg); } to { opacity: 1; transform: none; } }
+@keyframes xwPop { from { opacity: 0; scale: .6; } to { opacity: 1; scale: 1; } }
+@media (max-width: 720px) {
+  .gate-forest { background-attachment: scroll; background-position: center bottom; }
+  .gate-forest .gate-copy { padding: 26px 22px; border-radius: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gate-intro, .gate-intro .gate-copy, .gate-intro .brand-logo, .gate-intro .gate-art-tile { animation: none !important; }
+}`;
+  const s = document.createElement('style'); s.id = 'xenwinx-forest'; s.textContent = css; document.head.appendChild(s);
+})();
