@@ -1,7 +1,7 @@
 /* Bump this number every time you upload new files, so phones pick up the update. */
-const CACHE = 'xenwinx-v2.9.2';
+const CACHE = 'xenwinx-v2.9.3';
 const FILES = ['./', 'index.html', 'renderer.js', 'config.js', 'manifest.webmanifest',
-  'icons/icon-192.png', 'icons/icon-512.png', 'assets/xenwinx-logo.png', 'assets/forest-bg-wide.jpg', 'assets/forest-bg-tall.jpg'];
+  'icons/icon-192.png', 'icons/icon-512.png', 'assets/xenwinx-logo.png', 'assets/forest-bg-wide.jpg', 'assets/forest-bg-tall.jpg', 'assets/splash-cottage.jpg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

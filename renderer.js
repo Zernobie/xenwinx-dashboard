@@ -1,6 +1,39 @@
 /* Default cloud sync connection (used if config.js isn't loaded, e.g. in Electron Fiddle). Anon key is public by design. */
 window.XW_CONFIG = (window.XW_CONFIG && window.XW_CONFIG.supabaseUrl) ? window.XW_CONFIG : { supabaseUrl: 'https://cxvvicjtyhkynedezmag.supabase.co', supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN4dnZpY2p0eWhreW5lZGV6bWFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NzY2NzIsImV4cCI6MjA4NjQ1MjY3Mn0.lRPFe1dnSfCfJqAerIndT2fhRDIvXk-ryDJ5NIgtvEg' };
 
+
+/* App splash: cottage scene + logo on every launch, then the landing page plays its intro. */
+(function xwSplash() {
+  if (window.__xwSplash) return; window.__xwSplash = true;
+  const st = document.createElement('style'); st.id = 'xenwinx-splash';
+  st.textContent = `
+#xw-splash { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; cursor: pointer;
+  background: #1f3a2c url('assets/splash-cottage.jpg') center / cover no-repeat; transition: opacity .7s ease, visibility .7s; }
+#xw-splash::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 50% 45%, rgba(0,0,0,0) 30%, rgba(8,22,14,.45) 100%); }
+#xw-splash .xw-splash-logo { position: relative; width: min(42vw, 190px); aspect-ratio: 1; border-radius: 28px; background: #fff;
+  display: grid; place-items: center; box-shadow: 0 24px 60px rgba(0,20,10,.45); animation: xwSplashLogo 1s cubic-bezier(.2,.8,.2,1.15) .25s both; }
+#xw-splash .xw-splash-logo img { width: 88%; height: auto; }
+#xw-splash.xw-out { opacity: 0; visibility: hidden; }
+#xw-splash .xw-splash-art { display: none; position: absolute; inset: 0; background: url('assets/splash-cottage.jpg') center / contain no-repeat; }
+@media (min-aspect-ratio: 1/1) {
+  #xw-splash::before { -webkit-backdrop-filter: blur(28px) brightness(.7); backdrop-filter: blur(28px) brightness(.7); background: rgba(8,22,14,.25); }
+  #xw-splash .xw-splash-art { display: block; }
+}
+@keyframes xwSplashLogo { from { opacity: 0; transform: scale(.6) translateY(20px); } to { opacity: 1; transform: none; } }
+html.xw-splashing .gate-intro, html.xw-splashing .gate-intro * { animation-play-state: paused !important; }
+@media (prefers-reduced-motion: reduce) { #xw-splash .xw-splash-logo { animation: none; } }`;
+  document.head.appendChild(st);
+  const el = document.createElement('div'); el.id = 'xw-splash'; el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = '<div class="xw-splash-art"></div><div class="xw-splash-logo"><img src="assets/xenwinx-logo.png" alt=""></div>';
+  document.documentElement.classList.add('xw-splashing');
+  (document.body || document.documentElement).appendChild(el);
+  let done = false;
+  const finish = () => { if (done) return; done = true; el.classList.add('xw-out');
+    document.documentElement.classList.remove('xw-splashing'); setTimeout(() => el.remove(), 800); };
+  el.addEventListener('click', finish);
+  setTimeout(finish, 2200);
+})();
+
 /* Xenwinx Studio Dashboard — full app, self-contained for Electron Fiddle. */
 
 (function injectStyles() {
