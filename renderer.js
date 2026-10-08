@@ -2017,7 +2017,7 @@ function trackerItemHtml(section, it) {
     <div class="tracker-item">
       <div class="tracker-item-row">
         <input type="checkbox" data-action="toggle-tracker-item" data-section="${section}" data-id="${it.id}" ${it.done ? 'checked' : ''}>
-        <input class="tracker-item-text ${it.done ? 'strike' : ''}" value="${esc(it.text)}" data-action-input="tracker-item-text" data-section="${section}" data-id="${it.id}">
+        <textarea rows="1" class="tracker-item-text ${it.done ? 'strike' : ''}" data-action-input="tracker-item-text" data-section="${section}" data-id="${it.id}">${esc(it.text)}</textarea>
         <label class="attach-btn">Attach<input type="file" multiple style="display:none" data-action="tracker-item-files" data-section="${section}" data-id="${it.id}"></label>
         <button class="danger-btn small" data-action="delete-tracker-item" data-section="${section}" data-id="${it.id}">&times;</button>
       </div>
@@ -3913,7 +3913,7 @@ function featuresAfterRender() {
   if (app && FX.lastView !== state.activeView) app.classList.remove('nav-open');
   FX.lastView = state.activeView;
 }
-function featuresOnEnter() { FX.reportOpen = null; FX.reportDraft = null; FX.entry = null; FX.cloudMsg = ''; FX.linkChoice = 0; cloudPull(); }
+function featuresOnEnter() { FX.reportOpen = null; FX.reportDraft = null; FX.entry = null; FX.cloudMsg = ''; FX.linkChoice = 0; Promise.resolve(cloudPull()).catch(() => {}).finally(() => { if (typeof xwcApplyInbox === 'function') xwcApplyInbox(); }); }
 function featuresOnLeave() {
   const p = P();
   if (p && FX.pushTimer) { clearTimeout(FX.pushTimer); FX.pushTimer = null; cloudPush(p, stateSnapshot(false)); }
@@ -3983,6 +3983,161 @@ class XenwinxDashboard extends HTMLElement {
 if (!window.customElements.get('xenwinx-dashboard')) customElements.define('xenwinx-dashboard', XenwinxDashboard);
 window.XenwinxDashboard = { boot, state, profiles: () => REG.profiles, themes: THEMES };
 
+/* ================= Claude daily updates (desktop app only) =================
+   A scheduled Claude task writes JSON files into Documents\XenwinxStudioDashboard\claude-updates\inbox.
+   When a profile opens on the desktop, each file is applied, a summary is shown, and the file moves to \applied.
+   The dashboard also writes claude-updates\dashboard-snapshot.json so Claude can see current names and ids.
+   File format: { "profile": "Zernobie", "date": "2026-10-08", "summary": "...", "updates": [ { "op": "...", ... } ] }
+   Supported ops:
+     tracker.set        { list: "master"|"daily", id?|text, done?: bool, newText? }
+     tracker.add        { list, text, done? }
+     game.status        { universe, status }                       (planned | pre-production | in development | on hold | published)
+     game.task.set      { universe, id?|name, status?, outstanding? } (planned | in progress | blocked | done)
+     game.task.add      { universe, name, status?, outstanding? }
+     game.workflow.set  { universe, id?|task, status }             (not started | in progress | done | blocked | not needed)
+     rootedtales.status { buildStatus }
+     rootedtales.workflow.set { id?|name, done }
+     rootedtales.version      { version, date?, notes? }
+     rootedtales.bug.set      { id?|title, status }                (open | in progress | resolved)
+     rootedtales.bug.add      { title, priority?, status? }
+     dailycheck.add     { date?, heading, area?, whatDone?, whatNeeds?, blockers? }
+     note               { text }   (informational only, shown in the summary)
+*/
+const XWC = { busy: false, lastSnap: '' };
+function xwcNorm(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+function xwcFind(arr, id, label, key) {
+  if (!Array.isArray(arr)) return null;
+  if (id) { const hit = arr.find(x => x.id === id); if (hit) return hit; }
+  const n = xwcNorm(label); if (!n) return null;
+  const exact = arr.filter(x => xwcNorm(x[key]) === n); if (exact.length === 1) return exact[0];
+  const part = arr.filter(x => xwcNorm(x[key]).includes(n) || (xwcNorm(x[key]) && n.includes(xwcNorm(x[key]))));
+  return part.length === 1 ? part[0] : null;
+}
+function xwcUniverse(key) {
+  if (!key) return null;
+  if (state.universes[key]) return state.universes[key];
+  const n = xwcNorm(key);
+  return Object.values(state.universes).find(u => [u.id, u.name, u.short, u.game && u.game.name].some(v => xwcNorm(v) === n || (xwcNorm(v) && xwcNorm(v).includes(n)))) || null;
+}
+function xwcApplyOne(op) {
+  const t = op && op.op;
+  const pick = (list, allowed, v) => allowed.includes(String(v || '').toLowerCase()) ? String(v).toLowerCase() : null;
+  switch (t) {
+    case 'tracker.set': case 'tracker.add': {
+      const arr = op.list === 'daily' ? state.dailyTrackerItems : state.masterTrackerItems;
+      if (t === 'tracker.add') {
+        if (!op.text) return 'skipped: no text';
+        if (xwcFind(arr, null, op.text, 'text')) return 'skipped: already exists';
+        arr.push({ id: uid(), text: String(op.text), done: !!op.done, attachments: [] }); return `added "${op.text}"`;
+      }
+      const it = xwcFind(arr, op.id, op.text, 'text'); if (!it) return 'skipped: item not found';
+      if (typeof op.done === 'boolean') it.done = op.done;
+      if (op.newText) it.text = String(op.newText);
+      return `${it.done ? 'ticked' : 'unticked'} "${it.text}"`;
+    }
+    case 'game.status': case 'game.task.set': case 'game.task.add': case 'game.workflow.set': {
+      const u = xwcUniverse(op.universe); if (!u || !u.game) return 'skipped: universe not found';
+      const g = u.game;
+      if (t === 'game.status') { const s = pick(null, GAME_STATUS, op.status); if (!s) return 'skipped: unknown status'; g.status = s; return `${u.short || u.name} game → ${s}`; }
+      if (t === 'game.task.add') {
+        if (!op.name) return 'skipped: no name';
+        if (xwcFind(g.tasks, null, op.name, 'name')) return 'skipped: task already exists';
+        g.tasks.push({ id: uid(), name: String(op.name), status: pick(null, TASK_STATUS, op.status) || 'planned', outstanding: String(op.outstanding || '') });
+        return `new ${u.short || u.name} task "${op.name}"`;
+      }
+      if (t === 'game.task.set') {
+        const k = xwcFind(g.tasks, op.id, op.name, 'name'); if (!k) return 'skipped: task not found';
+        const s = pick(null, TASK_STATUS, op.status); if (s) k.status = s;
+        if (op.outstanding !== undefined) k.outstanding = String(op.outstanding);
+        return `"${k.name}" → ${k.status}`;
+      }
+      const r = xwcFind(g.workflowTable, op.id, op.task, 'task'); if (!r) return 'skipped: workflow row not found';
+      const s = pick(null, WF_STATUS, op.status); if (!s) return 'skipped: unknown status';
+      r.status = s; return `workflow "${String(r.task).slice(0, 60)}" → ${s}`;
+    }
+    case 'rootedtales.status': case 'rootedtales.workflow.set': case 'rootedtales.version': case 'rootedtales.bug.set': case 'rootedtales.bug.add': {
+      const a = state.apps && state.apps.rootedTales; if (!a) return 'skipped: Rooted Tales not found';
+      if (t === 'rootedtales.status') { if (!op.buildStatus) return 'skipped'; a.buildStatus = String(op.buildStatus); return `Rooted Tales → ${a.buildStatus}`; }
+      if (t === 'rootedtales.workflow.set') { const w = xwcFind(a.workflow, op.id, op.name, 'name'); if (!w) return 'skipped: step not found'; w.done = !!op.done; return `Rooted Tales step "${w.name}" ${w.done ? 'done' : 'not done'}`; }
+      if (t === 'rootedtales.version') {
+        if (!op.version) return 'skipped: no version';
+        if (!a.versions.some(v => v.version === op.version)) a.versions.unshift({ id: uid(), version: String(op.version), date: op.date || isoToday(), notes: String(op.notes || '') });
+        a.liveVersion = String(op.version); return `Rooted Tales version ${op.version}`;
+      }
+      if (t === 'rootedtales.bug.add') {
+        if (!op.title) return 'skipped'; if (xwcFind(a.bugs, null, op.title, 'title')) return 'skipped: bug already listed';
+        a.bugs.push({ id: uid(), title: String(op.title), status: pick(null, BUG_STATUS, op.status) || 'open', priority: pick(null, PRIORITY, op.priority) || 'medium' }); return `new bug "${op.title}"`;
+      }
+      const b = xwcFind(a.bugs, op.id, op.title, 'title'); if (!b) return 'skipped: bug not found';
+      const s = pick(null, BUG_STATUS, op.status); if (!s) return 'skipped: unknown status'; b.status = s; return `bug "${b.title}" → ${s}`;
+    }
+    case 'dailycheck.add': {
+      const d = { id: uid(), date: op.date || isoToday(), heading: String(op.heading || 'Daily progress (Claude)'), area: PILLARS.includes(op.area) ? op.area : 'Studio',
+        whatDone: String(op.whatDone || ''), whatNeeds: String(op.whatNeeds || ''), blockers: String(op.blockers || '') };
+      if (state.dailyChecks.some(x => x.date === d.date && x.heading === d.heading)) return 'skipped: entry already exists';
+      state.dailyChecks.unshift(d); return `Daily Check entry "${d.heading}" (${d.date})`;
+    }
+    case 'note': return op.text ? `note: ${op.text}` : 'skipped';
+    default: return `skipped: unknown op "${t}"`;
+  }
+}
+function xwcSnapshot() {
+  const p = P(); if (!p) return null;
+  const a = state.apps && state.apps.rootedTales;
+  return {
+    format: 'xenwinx-dashboard-snapshot', version: 1, writtenAt: new Date().toISOString(), profile: p.name,
+    trackers: { master: state.masterTrackerItems.map(i => ({ id: i.id, text: i.text, done: !!i.done })), daily: state.dailyTrackerItems.map(i => ({ id: i.id, text: i.text, done: !!i.done })) },
+    universes: uOrder().map(id => { const u = state.universes[id], g = u.game || {}; return { id, name: u.name, gameName: g.name, gameStatus: g.status,
+      tasks: (g.tasks || []).map(k => ({ id: k.id, name: k.name, status: k.status, outstanding: k.outstanding })),
+      workflow: (g.workflowTable || []).map(r => ({ id: r.id, phase: r.phase, task: r.task, status: r.status })) }; }),
+    rootedTales: a ? { buildStatus: a.buildStatus, liveVersion: a.liveVersion, workflow: a.workflow.map(w => ({ id: w.id, name: w.name, done: !!w.done })),
+      bugs: a.bugs.map(b => ({ id: b.id, title: b.title, status: b.status, priority: b.priority })), recentVersions: a.versions.slice(0, 3) } : null,
+    recentDailyChecks: state.dailyChecks.slice(0, 7).map(d => ({ date: d.date, heading: d.heading, area: d.area })),
+    allowed: { trackerLists: ['master', 'daily'], gameStatus: GAME_STATUS, taskStatus: TASK_STATUS, workflowStatus: WF_STATUS, bugStatus: BUG_STATUS, areas: PILLARS }
+  };
+}
+function xwcWriteSnapshot(force) {
+  if (!(window.xwNative && window.xwNative.claudeSnapshot) || !ACTIVE) return;
+  const snap = xwcSnapshot(); if (!snap) return;
+  const key = JSON.stringify(Object.assign({}, snap, { writtenAt: '' }));
+  if (!force && key === XWC.lastSnap) return;
+  XWC.lastSnap = key; window.xwNative.claudeSnapshot(JSON.stringify(snap, null, 2)).catch(() => {});
+}
+function xwcToast(title, lines) {
+  const old = document.getElementById('xwc-toast'); if (old) old.remove();
+  const el = document.createElement('div'); el.id = 'xwc-toast';
+  el.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:9000;max-width:min(420px,calc(100vw - 32px));max-height:60vh;overflow:auto;background:var(--t-surface-solid,#fff);color:var(--t-ink,#213247);border:1px solid var(--t-line-2,#ccd);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.25);padding:14px 16px;font:13px/1.45 "Work Sans",sans-serif;cursor:pointer';
+  el.innerHTML = `<div style="font-weight:700;margin-bottom:6px">${esc(title)}</div>${lines.map(l => `<div style="color:${/^skipped/.test(l) ? 'var(--t-muted,#889)' : 'inherit'}">• ${esc(l)}</div>`).join('')}<div style="margin-top:8px;font-size:11.5px;color:var(--t-muted,#889)">Tap to close</div>`;
+  el.addEventListener('click', () => el.remove());
+  document.body.appendChild(el); setTimeout(() => { if (el.isConnected) el.remove(); }, 20000);
+}
+async function xwcApplyInbox() {
+  if (!(window.xwNative && window.xwNative.claudeRead) || XWC.busy || !ACTIVE) return;
+  XWC.busy = true;
+  try {
+    const p = P(); const files = await window.xwNative.claudeRead();
+    const lines = []; let applied = 0;
+    for (const f of files) {
+      if (f.error || !f.data) { lines.push(`skipped ${f.file}: ${f.error || 'empty'}`); continue; }
+      const d = f.data;
+      if (d.profile && p && xwcNorm(d.profile) !== xwcNorm(p.name)) continue; // meant for another profile: leave it in the inbox
+      const results = (Array.isArray(d.updates) ? d.updates : []).map(op => { try { return xwcApplyOne(op); } catch (e) { return 'skipped: ' + e.message; } });
+      applied++; if (d.summary) lines.push(String(d.summary)); results.forEach(r => lines.push(r));
+      await window.xwNative.claudeDone(f.file, results);
+    }
+    if (applied) {
+      saveState(); keepScroll(render);
+      xwcToast(`Claude updated your dashboard (${applied} file${applied === 1 ? '' : 's'})`, lines.slice(0, 40));
+    }
+    xwcWriteSnapshot(true);
+  } catch (e) { console.warn('Xenwinx: Claude updates failed', e); }
+  finally { XWC.busy = false; }
+}
+if (window.xwNative && window.xwNative.claudeRead) {
+  setInterval(() => { xwcWriteSnapshot(false); }, 60000);
+  window.addEventListener('focus', () => { if (ACTIVE) xwcApplyInbox(); });
+}
+
 /* Landing page: forest background. The forest shows first, then the logo and content fade in. */
 (function injectForestStyles() {
   const css = `
@@ -4015,6 +4170,15 @@ window.XenwinxDashboard = { boot, state, profiles: () => REG.profiles, themes: T
 /* Phone layout fixes: calendar, workflow table and task rows fit the screen instead of being cut off. */
 (function injectMobileFixes() {
   const css = `
+.tracker-item-text { resize: none; overflow: hidden; field-sizing: content; min-height: 1.4em; line-height: 1.4; padding: 2px 0; white-space: pre-wrap; word-break: break-word; min-width: 0; }
+.tracker-item-row { align-items: flex-start; }
+.tracker-item-row > input[type=checkbox] { margin-top: 4px; flex-shrink: 0; }
+@media (max-width: 560px) {
+  .tracker-item { padding: 10px; }
+  .tracker-item-row { flex-wrap: wrap; row-gap: 8px; }
+  .tracker-item-text { flex: 1 1 calc(100% - 34px) !important; font-size: 14px; }
+  .tracker-item-row .attach-btn { margin-left: 30px; }
+}
 @media (max-width: 820px) {
   #main img, #main video { max-width: 100%; height: auto; }
   .task-row, .step-row { flex-wrap: wrap; row-gap: 8px; }

@@ -1,5 +1,5 @@
 /* Bump this number every time you upload new files, so phones pick up the update. */
-const CACHE = 'xenwinx-v2.9.4';
+const CACHE = 'xenwinx-v2.9.5';
 const FILES = ['./', 'index.html', 'renderer.js', 'config.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'assets/xenwinx-logo.png', 'assets/forest-bg-wide.jpg', 'assets/forest-bg-tall.jpg', 'assets/splash-cottage.jpg'];
 
